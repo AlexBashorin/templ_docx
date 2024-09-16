@@ -3,7 +3,9 @@ package paste
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/xml"
 	"fmt"
+	"image/png"
 	"io"
 	"io/ioutil"
 	"log"
@@ -11,287 +13,60 @@ import (
 	"strings"
 )
 
-// V 1
-// func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images map[string][]byte) ([]byte, error) {
-// 	reader, err := zip.NewReader(bytes.NewReader(docxFile), int64(len(docxFile)))
-// 	if err != nil {
-// 		return nil, err
-// 	}
+type Document struct {
+	XMLName xml.Name `xml:"document"`
+	Body    Body     `xml:"body"`
+}
 
-// 	var resultBuf bytes.Buffer
-// 	writer := zip.NewWriter(&resultBuf)
+type Body struct {
+	Paragraphs []Paragraph `xml:"p"`
+}
 
-// 	var documentXML []byte
-// 	var relsXML []byte
-// 	imageRelationships := make(map[string]string)
+type Paragraph struct {
+	Content []interface{} `xml:",any"`
+}
 
-// 	for _, file := range reader.File {
-// 		switch file.Name {
-// 		case "word/document.xml":
-// 			documentXML, err = readZipFile(file)
-// 			if err != nil {
-// 				return nil, err
-// 			}
-// 		case "word/_rels/document.xml.rels":
-// 			relsXML, err = readZipFile(file)
-// 			if err != nil {
-// 				return nil, err
-// 			}
-// 		default:
-// 			if err = copyZipFile(writer, file); err != nil {
-// 				return nil, err
-// 			}
-// 		}
-// 	}
+type Run struct {
+	XMLName       xml.Name      `xml:"r"`
+	RunProperties RunProperties `xml:"rPr"`
+	Text          Text          `xml:"t"`
+}
 
-// 	// Создание записи самого файла
-// 	fmt.Println(len(images))
-// 	for key, imageData := range images {
-// 		// rId := fmt.Sprintf("rId%d", len(imageRelationships)+1)
-// 		rId := "rId5"
-// 		// fileName := fmt.Sprintf("image%d.png", len(imageRelationships)+1)
-// 		imageRelationships["myimg"] = rId
+type Hyperlink struct {
+	XMLName xml.Name `xml:"hyperlink"`
+	ID      string   `xml:"id,attr"`
+	Run     Run      `xml:"r"`
+}
 
-// 		// Добавляем изображение в zip
-// 		imgWriter, err := writer.Create(fmt.Sprintf("word/media/%s", key))
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		if _, err = imgWriter.Write(imageData); err != nil {
-// 			return nil, err
-// 		}
+type RunProperties struct {
+	Fonts  Fonts  `xml:"rFonts"`
+	Size   Size   `xml:"sz"`
+	SizeCs SizeCs `xml:"szCs"`
+	Color  Color  `xml:"color,omitempty"`
+}
 
-// 		// Обновляем relationships
-// 		relsXML = []byte(strings.Replace(string(relsXML), "</Relationships>", createImageRelationship(rId, key)+"</Relationships>", 1))
-// 		fmt.Printf("relsXML: %v\n", string(relsXML))
-// 	}
+type Fonts struct {
+	ASCII string `xml:"ascii,attr"`
+	HANSI string `xml:"hAnsi,attr"`
+}
 
-// 	// Заменяем переменные и добавляем изображения в document.xml
-// 	for key, value := range variables {
-// 		pattern := regexp.MustCompile(`@` + regexp.QuoteMeta(key))
-// 		documentXML = pattern.ReplaceAll(documentXML, []byte(value))
-// 	}
+type Size struct {
+	Val string `xml:"val,attr"`
+}
 
-// 	for key, rId := range imageRelationships {
+type SizeCs struct {
+	Val string `xml:"val,attr"`
+}
 
-// 		pattern := regexp.MustCompile(`@` + regexp.QuoteMeta(key))
+type Text struct {
+	Value string `xml:",chardata"`
+}
 
-// 		replacement := []byte(fmt.Sprintf(`
-//             <w:p>
-//               <w:r>
-//                 <w:drawing>
-//                   <wp:inline distT="0" distB="0" distL="0" distR="0">
-//                     <wp:extent cx="5486400" cy="3657600"/>
-//                     <wp:effectExtent l="0" t="0" r="0" b="0"/>
-//                     <wp:docPr id="1" name="Picture 1"/>
-//                     <wp:cNvGraphicFramePr>
-//                       <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>
-//                     </wp:cNvGraphicFramePr>
-//                     <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-//                       <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-//                         <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-//                           <pic:nvPicPr>
-//                             <pic:cNvPr id="0" name="Picture 1"/>
-//                             <pic:cNvPicPr/>
-//                           </pic:nvPicPr>
-//                           <pic:blipFill>
-//                             <a:blip r:embed="%s">
-//                               <a:extLst>
-//                                 <a:ext uri="{28A0092B-C50C-407E-A947-70E740481C1C}">
-//                                   <a14:useLocalDpi xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" val="0"/>
-//                                 </a:ext>
-//                               </a:extLst>
-//                             </a:blip>
-//                             <a:stretch>
-//                               <a:fillRect/>
-//                             </a:stretch>
-//                           </pic:blipFill>
-//                           <pic:spPr>
-//                             <a:xfrm>
-//                               <a:off x="0" y="0"/>
-//                               <a:ext cx="5486400" cy="3657600"/>
-//                             </a:xfrm>
-//                             <a:prstGeom prst="rect">
-//                               <a:avLst/>
-//                             </a:prstGeom>
-//                           </pic:spPr>
-//                         </pic:pic>
-//                       </a:graphicData>
-//                     </a:graphic>
-//                   </wp:inline>
-//                 </w:drawing>
-//               </w:r>
-//             </w:p>
-//         `, rId))
-// 		// replacement := []byte(fmt.Sprintf(`<w:pict><v:shape style="width:100pt;height:100pt"><v:imagedata r:id="%s"/></v:shape></w:pict>`, rId))
-// 		// repl := []byte(fmt.Sprintf(`<w:p><w:r><w:drawing><wp:inline><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="%s" /></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`, rId))
+type Color struct {
+	Val string `xml:"val,attr"`
+}
 
-// 		// documentXML = pattern.ReplaceAll(documentXML, replacement)
-// 		documentXML = pattern.ReplaceAll(documentXML, bytes.TrimSpace(replacement))
-
-// 	}
-
-// 	// Записываем обновленные файлы
-// 	if err = writeZipFile(writer, "word/document.xml", documentXML); err != nil {
-// 		return nil, err
-// 	}
-// 	if err = writeZipFile(writer, "word/_rels/document.xml.rels", relsXML); err != nil {
-// 		return nil, err
-// 	}
-
-// 	err = writer.Close()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return resultBuf.Bytes(), nil
-// }
-
-// func createImageRelationship(rId, fileName string) string {
-// 	return fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/%s"/>`, rId, fileName)
-// }
-
-// func readZipFile(file *zip.File) ([]byte, error) {
-// 	rc, err := file.Open()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rc.Close()
-
-// 	return ioutil.ReadAll(rc)
-// }
-
-// func writeZipFile(writer *zip.Writer, filename string, content []byte) error {
-// 	w, err := writer.Create(filename)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	_, err = w.Write(content)
-// 	return err
-// }
-
-// func copyZipFile(writer *zip.Writer, file *zip.File) error {
-// 	rc, err := file.Open()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer rc.Close()
-
-// 	w, err := writer.Create(file.Name)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	_, err = io.Copy(w, rc)
-// 	return err
-// }
-
-// V2
-
-// func InsertImage(docxFile, imagePath string) error {
-// 	// Открываем DOCX как zip архив
-// 	reader, err := zip.OpenReader(docxFile)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer reader.Close()
-
-// 	// Создаем буфер для нового zip файла
-// 	var buf bytes.Buffer
-// 	writer := zip.NewWriter(&buf)
-
-// 	// Читаем содержимое нового изображения
-// 	imageData, err := ioutil.ReadFile(imagePath)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	imageId := "rId1000" // Уникальный ID для нового изображения
-// 	imageName := filepath.Base(imagePath)
-
-// 	for _, file := range reader.File {
-// 		if file.Name == "word/document.xml" {
-// 			// Заменяем @myimg на XML-структуру изображения
-// 			doc, _ := file.Open()
-// 			content, _ := ioutil.ReadAll(doc)
-// 			imageXml := `<w:p>
-//                 <w:r>
-//                     <w:drawing>
-//                         <wp:inline>
-//                             <wp:extent cx="5486400" cy="3657600"/>
-//                             <wp:effectExtent l="0" t="0" r="0" b="0"/>
-//                             <wp:docPr id="1" name="Picture 1"/>
-//                             <wp:cNvGraphicFramePr>
-//                                 <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>
-//                             </wp:cNvGraphicFramePr>
-//                             <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-//                                 <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-//                                     <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-//                                         <pic:nvPicPr>
-//                                             <pic:cNvPr id="0" name="Picture 1"/>
-//                                             <pic:cNvPicPr/>
-//                                         </pic:nvPicPr>
-//                                         <pic:blipFill>
-//                                             <a:blip r:embed="` + imageId + `">
-//                                                 <a:extLst>
-//                                                     <a:ext uri="{28A0092B-C50C-407E-A947-70E740481C1C}">
-//                                                         <a14:useLocalDpi xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" val="0"/>
-//                                                     </a:ext>
-//                                                 </a:extLst>
-//                                             </a:blip>
-//                                             <a:stretch>
-//                                                 <a:fillRect/>
-//                                             </a:stretch>
-//                                         </pic:blipFill>
-//                                         <pic:spPr>
-//                                             <a:xfrm>
-//                                                 <a:off x="0" y="0"/>
-//                                                 <a:ext cx="5486400" cy="3657600"/>
-//                                             </a:xfrm>
-//                                             <a:prstGeom prst="rect">
-//                                                 <a:avLst/>
-//                                             </a:prstGeom>
-//                                         </pic:spPr>
-//                                     </pic:pic>
-//                                 </a:graphicData>
-//                             </a:graphic>
-//                         </wp:inline>
-//                     </w:drawing>
-//                 </w:r>
-//             </w:p>`
-// 			newContent := strings.Replace(string(content), "@myimg", imageXml, -1)
-// 			_, _ = writer.Create(file.Name)
-// 			_, _ = writer.Write([]byte(newContent))
-// 		} else if file.Name == "word/_rels/document.xml.rels" {
-// 			// Добавляем новую связь в document.xml.rels
-// 			doc, _ := file.Open()
-// 			content, _ := ioutil.ReadAll(doc)
-// 			newRel := `<Relationship Id="` + imageId + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/` + imageName + `"/>`
-// 			newContent := strings.Replace(string(content), "</Relationships>", newRel+"</Relationships>", 1)
-// 			_ = writer.Create(file.Name)
-// 			_, _ = writer.Write([]byte(newContent))
-// 		} else {
-// 			// Копируем остальные файлы без изменений
-// 			dst, _ := writer.Create(file.Name)
-// 			src, _ := file.Open()
-// 			_, _ = io.Copy(dst, src)
-// 		}
-// 	}
-
-// 	// Добавляем новое изображение
-// 	imgWriter, _ := writer.Create("word/media/" + imageName)
-// 	_, _ = imgWriter.Write(imageData)
-
-// 	writer.Close()
-
-// 	// Записываем измененный DOCX обратно в файл
-// 	return ioutil.WriteFile(docxFile, buf.Bytes(), 0644)
-// }
-
-// V 3
-
-func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images map[string][]byte, links map[string]string) ([]byte, error) {
+func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images map[string][]byte, links, qrcodes map[string]string) ([]byte, error) {
 	reader, err := zip.NewReader(bytes.NewReader(docxFile), int64(len(docxFile)))
 	if err != nil {
 		return nil, fmt.Errorf("error opening docx: %v", err)
@@ -304,6 +79,10 @@ func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images
 	var relsXML []byte
 	imageRelationships := make(map[string]string)
 	linksRelationships := make(map[string]string)
+	QRRelationships := make(map[string]string)
+
+	// Convert xml to structure
+	var xmldoc Document
 
 	for _, file := range reader.File {
 		switch file.Name {
@@ -311,6 +90,10 @@ func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images
 			documentXML, err = readZipFile(file)
 			if err != nil {
 				return nil, fmt.Errorf("error reading document.xml: %v", err)
+			}
+			errXmlUnmarsh := xml.Unmarshal(documentXML, &xmldoc)
+			if errXmlUnmarsh != nil {
+				return nil, fmt.Errorf("Can't unmarshal xml")
 			}
 			log.Printf("document.xml content length: %d", len(documentXML))
 		case "word/_rels/document.xml.rels":
@@ -350,7 +133,7 @@ func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images
 
 	log.Printf("Replacing image variables")
 	for key, rId := range imageRelationships {
-		pattern := regexp.MustCompile(`<w:t>@` + regexp.QuoteMeta(key) + "</w:t>")
+		pattern := regexp.MustCompile(`<w:t>` + regexp.QuoteMeta(key) + "</w:t>")
 		replacement := generateImageXML(rId)
 		documentXML = pattern.ReplaceAll(documentXML, replacement)
 		log.Printf("Replaced @%s with image XML (rId: %s)", key, rId)
@@ -359,7 +142,7 @@ func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images
 	// texts
 	log.Printf("Replacing text variables")
 	for key, value := range variables {
-		pattern := regexp.MustCompile(`@` + regexp.QuoteMeta(key))
+		pattern := regexp.MustCompile(regexp.QuoteMeta(key))
 		documentXML = pattern.ReplaceAll(documentXML, []byte(value))
 		log.Printf("Replaced @%s with %s", key, value)
 	}
@@ -373,13 +156,96 @@ func ReplaceVariablesInDOCX(docxFile []byte, variables map[string]string, images
 		relsXML = []byte(strings.Replace(string(relsXML), "</Relationships>", newRel+"</Relationships>", 1))
 	}
 
+	for i, para := range xmldoc.Body.Paragraphs {
+		for j, content := range para.Content {
+			if run, ok := content.(Run); ok {
+				if run.Text.Value == "link3d" {
+					hyperlink := Hyperlink{
+						ID: "rId1", // Это ID должно соответствовать ID в файле word/_rels/document.xml.rels
+						Run: Run{
+							RunProperties: RunProperties{
+								Fonts:  run.RunProperties.Fonts,
+								Size:   run.RunProperties.Size,
+								SizeCs: run.RunProperties.SizeCs,
+								Color:  Color{Val: "0000FF"}, // Синий цвет для ссылки
+							},
+							Text: Text{Value: "link_to_3d"},
+						},
+					}
+					xmldoc.Body.Paragraphs[i].Content[j] = hyperlink
+				}
+			}
+		}
+	}
+	output, err := xml.MarshalIndent(xmldoc, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	// Замена пространства имен
+	output = bytes.Replace(output, []byte("document"), []byte("w:document"), 1)
+	output = bytes.Replace(output, []byte("<body>"), []byte("<w:body>"), 1)
+	output = bytes.Replace(output, []byte("</body>"), []byte("</w:body>"), 1)
+	output = bytes.Replace(output, []byte("<p>"), []byte("<w:p>"), -1)
+	output = bytes.Replace(output, []byte("</p>"), []byte("</w:p>"), -1)
+	output = bytes.Replace(output, []byte("<r>"), []byte("<w:r>"), -1)
+	output = bytes.Replace(output, []byte("</r>"), []byte("</w:r>"), -1)
+	output = bytes.Replace(output, []byte("<rPr>"), []byte("<w:rPr>"), -1)
+	output = bytes.Replace(output, []byte("</rPr>"), []byte("</w:rPr>"), -1)
+	output = bytes.Replace(output, []byte("<rFonts"), []byte("<w:rFonts"), -1)
+	output = bytes.Replace(output, []byte("<sz"), []byte("<w:sz"), -1)
+	output = bytes.Replace(output, []byte("<szCs"), []byte("<w:szCs"), -1)
+	output = bytes.Replace(output, []byte("<t>"), []byte("<w:t>"), -1)
+	output = bytes.Replace(output, []byte("</t>"), []byte("</w:t>"), -1)
+	output = bytes.Replace(output, []byte("<hyperlink"), []byte("<w:hyperlink"), -1)
+	output = bytes.Replace(output, []byte("</hyperlink>"), []byte("</w:hyperlink>"), -1)
+	output = bytes.Replace(output, []byte("<color"), []byte("<w:color"), -1)
+
+	// Добавление пространства имен
+	output = append([]byte(xml.Header), output...)
+	output = append([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`+"\n"), output...)
+	output = append(output, []byte("\n</w:document>")...)
+
+	// QR code
+	for key, qrdata := range qrcodes {
+		// set to rels
+		rIdQR := fmt.Sprintf("rId%d", len(QRRelationships)+9000)
+		relQRxml := createQRRelationship(rIdQR, "qr.png")
+		relsXML = []byte(strings.Replace(string(relsXML), "</Relationships>", relQRxml+"</Relationships>", 1))
+		QRRelationships[key] = rIdQR
+
+		genQRCode := GenerateQRCode(qrdata, 256)
+		imgWriter, err := writer.Create(fmt.Sprintf("word/media/%s", key))
+		if err != nil {
+			return nil, fmt.Errorf("error creating image file %s: %v", key, err)
+		}
+		buf := new(bytes.Buffer)
+		errBytesImage := png.Encode(buf, genQRCode)
+		if errBytesImage != nil {
+			log.Fatalf("errBytesImage: %v\n", errBytesImage)
+		}
+		if _, err = imgWriter.Write(buf.Bytes()); err != nil {
+			return nil, fmt.Errorf("error writing image data for %s: %v", key, err)
+		}
+	}
+
+	// QR rels
 	for key, rId := range linksRelationships {
-		pattern := regexp.MustCompile("<w:r><w:rPr></w:rPr><w:t>@" + regexp.QuoteMeta(key) + "</w:t></w:r>")
+		pattern := regexp.MustCompile("<w:r><w:rPr></w:rPr><w:t>" + regexp.QuoteMeta(key) + "</w:t></w:r>")
 		replacement := generateLinkXML(rId, key)
 		fmt.Printf("generateLinkXML: %v\n", replacement)
 		documentXML = pattern.ReplaceAll(documentXML, replacement)
 	}
 
+	// var qrBuffer bytes.Buffer
+	// png.Encode(&qrBuffer, genQRCode)
+	// qrBase64 := base64.StdEncoding.EncodeToString(qrBuffer.Bytes())
+
+	// pattern := regexp.MustCompile(`<w:t>` + regexp.QuoteMeta(key) + "</w:t>")
+	// replacement := generateImageXML(rIdQR)
+	// documentXML = pattern.ReplaceAll(documentXML, replacement)
+
+	// writes
 	log.Printf("Writing updated document.xml")
 	if err = writeZipFile(writer, "word/document.xml", documentXML); err != nil {
 		return nil, fmt.Errorf("error writing document.xml: %v", err)
@@ -453,6 +319,26 @@ func generateImageXML(rId string) []byte {
 	</w:drawing>`, rId))
 }
 
+func generateQRXML(rId string) []byte {
+	return []byte(fmt.Sprintf(`
+		<w:drawing>
+			<wp:inline>
+				<wp:extent cx="2700000" cy="2700000"/>
+				<wp:docPr id="1" name="QR Code"/>
+				<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+					<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+						<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+							<pic:blipFill>
+								<a:blip r:embed="%s"/>
+							</pic:blipFill>
+						</pic:pic>
+					</a:graphicData>
+				</a:graphic>
+			</wp:inline>
+		</w:drawing>
+`, rId))
+}
+
 func generateLinkXML(rId, textlink string) []byte {
 	return []byte(fmt.Sprintf(`<w:hyperlink r:id="%s">
 		<w:r>
@@ -470,6 +356,10 @@ func createImageRelationship(rId, fileName string) string {
 
 func createLinkRelationship(rId, linkURL string) string {
 	return fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="%s" TargetMode="External" />`, rId, linkURL)
+}
+
+func createQRRelationship(rId, qrname string) string {
+	return fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/%s"/>`, rId, qrname)
 }
 
 func readZipFile(file *zip.File) ([]byte, error) {

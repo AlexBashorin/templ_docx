@@ -15,15 +15,15 @@ func main() {
 
 	http.HandleFunc("/generate_docx", getTempl)
 
-	certFile := ""
-	keyFile := ""
+	// certFile := ""
+	// keyFile := ""
 
 	fmt.Println("Server is running on 7131")
-	// http.ListenAndServe(":7131", nil)
-	err := http.ListenAndServeTLS(":7131", certFile, keyFile, nil)
-	if err != nil {
-		log.Fatal("ListenAndServeTLS: ", err)
-	}
+	http.ListenAndServe(":7131", nil)
+	// err := http.ListenAndServeTLS(":7131", certFile, keyFile, nil)
+	// if err != nil {
+	// 	log.Fatal("ListenAndServeTLS: ", err)
+	// }
 }
 
 func getTempl(w http.ResponseWriter, r *http.Request) {
@@ -100,17 +100,6 @@ func getTempl(w http.ResponseWriter, r *http.Request) {
 		imgData[string(name)] = buf.Bytes()
 		buf.Reset()
 	}
-	// imgs := r.FormValue("images")
-	// if imgs == "" {
-	// 	fmt.Println("No sended images")
-	// }
-	// var imgData map[string][]byte
-	// err = json.Unmarshal([]byte(imgs), &imgData)
-	// if err != nil {
-	// 	http.Error(w, "Failed to parse images JSON", http.StatusBadRequest)
-	// 	return
-	// }
-	// fmt.Printf("images: %v\n", imgData)
 
 	// Ссылки
 	links := r.FormValue("links")
@@ -125,8 +114,20 @@ func getTempl(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("links: %v\n", linkData)
 
+	// QR codes
+	qrElma := r.FormValue("qrcode")
+	if qrElma == "" {
+		fmt.Println("No QR codes from ELMA")
+	}
+	var qrdata map[string]string
+	err = json.Unmarshal([]byte(qrElma), &qrdata)
+	if err != nil {
+		http.Error(w, "Failed to get qrcode data JSON", http.StatusBadRequest)
+		return
+	}
+
 	// Обработка
-	result, err := paste.ReplaceVariablesInDOCX(templateBytes, textVars, imgData, linkData)
+	result, err := paste.ReplaceVariablesInDOCX(templateBytes, textVars, imgData, linkData, qrdata)
 	if err != nil {
 		http.Error(w, "Failed parse: ReplaceVariablesInDOCX: error: "+err.Error(), http.StatusBadRequest)
 		panic(err)
