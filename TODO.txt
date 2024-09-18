@@ -1,4 +1,0 @@
-- tables
-- funcs:
-  - qr code
-  - 
